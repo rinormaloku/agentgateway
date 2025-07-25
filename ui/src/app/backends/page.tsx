@@ -42,7 +42,7 @@ export default function BackendsPage() {
               totalBackends += route.backends.length;
               bindHasBackends = true;
 
-              route.backends.forEach((backend) => {
+              route.backends?.forEach((backend) => {
                 const type = getBackendType(backend);
                 if (type in typeCounts) {
                   (typeCounts as any)[type]++;

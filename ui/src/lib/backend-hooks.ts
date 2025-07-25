@@ -57,7 +57,7 @@ export const useBackendData = () => {
 
       // Auto-expand binds with backends
       const bindsWithBackends = new Set<number>();
-      backends.forEach(({ bind }) => bindsWithBackends.add(bind.port));
+      backends?.forEach(({ bind }) => bindsWithBackends.add(bind.port));
       setExpandedBinds(bindsWithBackends);
     } catch (err) {
       console.error("Error loading backends:", err);
@@ -69,7 +69,7 @@ export const useBackendData = () => {
 
   const getBackendsByBind = () => {
     const backendsByBind = new Map<number, BackendWithContext[]>();
-    backends.forEach((backendContext) => {
+    backends?.forEach((backendContext) => {
       const port = backendContext.bind.port;
       if (!backendsByBind.has(port)) {
         backendsByBind.set(port, []);
@@ -108,7 +108,7 @@ export const useBackendFormState = () => {
         formWithDefaults.selectedRouteIndex = firstRoute.routeIndex.toString();
       }
     }
-    
+
     setBackendForm(formWithDefaults);
     setSelectedBackendType("mcp");
   };

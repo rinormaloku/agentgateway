@@ -1,0 +1,55 @@
+binds:
+- listeners:
+  - routes:
+    - matches:
+      - path:
+          exact: /.well-known/oauth-protected-resource/mcp
+      - path:
+          exact: /.well-known/oauth-protected-resource
+      name: oauth-metadata
+      policies:
+        cors:
+          allowOrigins:
+          - '*'
+        oauthProtectedResource:
+          metadata:
+            authorization_servers:
+            - http://localhost:3001
+            bearer_methods_supported:
+            - header
+            - body
+            - query
+            resource: http://localhost:3000/mcp
+            resource_documentation: http://localhost:3000/mcp/docs
+            resource_id: mcp-server
+            resource_policy_uri: http://localhost:3000/mcp/policies
+    - backends:
+      - mcp:
+          name: mcpbin
+          targets:
+          - filters: []
+            mcp:
+              host: mcpbin.is.solo.io
+              path: /remote/mcp
+              port: 443
+            name: mcpbin
+      matches:
+      - path:
+          exact: /mcp
+      policies:
+        backendTLS: {}
+        cors:
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+          allowOrigins:
+          - '*'
+        mcpAuthentication:
+          audience: http://localhost:3000/mcp
+          issuer: http://localhost:3001
+          provider:
+            custom:
+              jwks_url: http://localhost:3001/.well-known/jwks.json
+          scopes:
+          - read:all
+  port: 3000

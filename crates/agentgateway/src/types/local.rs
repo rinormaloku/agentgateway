@@ -399,6 +399,10 @@ struct FilterOrPolicy {
 	#[serde(default)]
 	cors: Option<http::cors::Cors>,
 
+	/// Respond to .well-known/oauth-protected-resource requests with OAuth 2.0 metadata.
+	#[serde(default)]
+	oauth_protected_resource: Option<http::oauth_protected_resource::OAuthProtectedResource>,
+
 	// Policy
 	/// Authorization policies for MCP access.
 	#[serde(default)]
@@ -668,6 +672,7 @@ async fn convert_route(
 			request_mirror,
 			direct_response,
 			cors,
+			oauth_protected_resource,
 			mcp_authorization,
 			mcp_authentication,
 			a2a,
@@ -710,6 +715,9 @@ async fn convert_route(
 		}
 		if let Some(p) = cors {
 			filters.push(RouteFilter::CORS(p));
+		}
+		if let Some(p) = oauth_protected_resource {
+			filters.push(RouteFilter::OAuthProtectedResource(p));
 		}
 
 		if let Some(p) = mcp_authorization {

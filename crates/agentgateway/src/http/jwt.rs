@@ -191,6 +191,30 @@ impl Jwt {
 		Ok(())
 	}
 
+	pub async fn apply_required(
+		&self,
+		log: &mut RequestLog,
+		req: &mut Request,
+	) -> Result<(), TokenError> {
+		let Ok(TypedHeader(Authorization(bearer))) = req
+			.extract_parts::<TypedHeader<Authorization<Bearer>>>()
+			.await
+		else {
+			// No token found, return Missing error for required authentication
+			return Err(TokenError::Missing);
+		};
+		let claims = self.validate_claims(bearer.token())?;
+		if let Some(serde_json::Value::String(sub)) = claims.inner.get("sub") {
+			log.jwt_sub = Some(sub.to_string());
+		};
+		log.cel.ctx().with_jwt(&claims);
+		// Remove the token. TODO: allow keep it
+		req.headers_mut().remove(http::header::AUTHORIZATION);
+		// Insert the claims into extensions so we can reference it later
+		req.extensions_mut().insert(claims);
+		Ok(())
+	}
+
 	pub fn validate_claims(&self, token: &str) -> Result<Claims, TokenError>
 where {
 		let header = decode_header(token).map_err(|error| {

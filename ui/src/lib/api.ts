@@ -151,7 +151,7 @@ export async function fetchMcpTargets(): Promise<any[]> {
     config.binds.forEach((bind: Bind) => {
       bind.listeners.forEach((listener: Listener) => {
         listener.routes?.forEach((route: Route) => {
-          route.backends.forEach((backend: Backend) => {
+          route.backends?.forEach((backend: Backend) => {
             if (backend.mcp) {
               mcpTargets.push(...backend.mcp.targets);
             }
@@ -179,7 +179,7 @@ export async function fetchA2aTargets(): Promise<any[]> {
     config.binds.forEach((bind: Bind) => {
       bind.listeners.forEach((listener: Listener) => {
         listener.routes?.forEach((route: Route) => {
-          route.backends.forEach((backend: Backend) => {
+          route.backends?.forEach((backend: Backend) => {
             if (backend.ai) {
               a2aTargets.push(backend.ai);
             }
@@ -495,7 +495,7 @@ export async function deleteMcpTarget(name: string): Promise<void> {
     config.binds.forEach((bind: Bind) => {
       bind.listeners.forEach((listener: Listener) => {
         listener.routes?.forEach((route: Route) => {
-          route.backends.forEach((backend: Backend) => {
+          route.backends?.forEach((backend: Backend) => {
             if (backend.mcp) {
               backend.mcp.targets = backend.mcp.targets.filter((t) => t.name !== name);
             }
@@ -548,7 +548,7 @@ export async function fetchListenerTargets(listenerName: string): Promise<any[]>
       bind.listeners.forEach((listener: Listener) => {
         if (listener.name === listenerName) {
           listener.routes?.forEach((route: Route) => {
-            route.backends.forEach((backend: Backend) => {
+            route.backends?.forEach((backend: Backend) => {
               if (backend.mcp) {
                 targets.push(...backend.mcp.targets);
               }

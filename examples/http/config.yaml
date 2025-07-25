@@ -72,5 +72,5 @@ binds:
           pathPrefix: /direct
       policies:
         directResponse:
-          body: "hello!"
+          body: "hello"
           status: 200

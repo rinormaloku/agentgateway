@@ -292,6 +292,7 @@ pub enum RouteFilter {
 	DirectResponse(filters::DirectResponse),
 	#[serde(rename = "cors")]
 	CORS(http::cors::Cors),
+	OAuthProtectedResource(http::oauth_protected_resource::OAuthProtectedResource),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1077,6 +1078,7 @@ impl McpAuthentication {
 					Some(McpIDP::Keycloak { .. }) => {
 						format!("{}/protocol/openid-connect/certs", self.issuer).parse()?
 					},
+					Some(McpIDP::Custom { jwks_url }) => jwks_url.parse()?,
 					// Some(McpIDP::Keycloak { realm }) => format!("{}/realms/{realm}/protocol/openid-connect/certs", self.issuer).parse()?,
 				},
 			},
@@ -1090,6 +1092,7 @@ impl McpAuthentication {
 pub enum McpIDP {
 	Auth0 {},
 	Keycloak {},
+	Custom { jwks_url: String },
 }
 
 impl McpAuthorization {

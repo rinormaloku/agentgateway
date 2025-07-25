@@ -147,6 +147,14 @@ fn apply_request_filters(
 					header_map = Some(hm)
 				}
 			},
+			RouteFilter::OAuthProtectedResource(opr) => {
+				let res = opr.apply(req)?;
+				if let Some(dr) = res.direct_response {
+					return Ok((Some(dr), None));
+				} else if let Some(hm) = res.response_headers {
+					header_map = Some(hm)
+				}
+			},
 			// Response only
 			RouteFilter::ResponseHeaderModifier { .. } => {},
 			// This is handled elsewhere
@@ -179,6 +187,7 @@ fn apply_response_filters(
 			RouteFilter::RequestMirror(_) => {},
 			RouteFilter::DirectResponse(_) => {},
 			RouteFilter::CORS(_) => {},
+			RouteFilter::OAuthProtectedResource(_) => {},
 		}
 	}
 	Ok(())
