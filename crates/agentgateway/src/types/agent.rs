@@ -1094,6 +1094,7 @@ impl McpAuthentication {
 					Some(McpIDP::Keycloak { .. }) => {
 						format!("{}/protocol/openid-connect/certs", self.issuer).parse()?
 					},
+					Some(McpIDP::Custom { jwks_url }) => jwks_url.parse()?,
 					// Some(McpIDP::Keycloak { realm }) => format!("{}/realms/{realm}/protocol/openid-connect/certs", self.issuer).parse()?,
 				},
 			},
@@ -1107,6 +1108,7 @@ impl McpAuthentication {
 pub enum McpIDP {
 	Auth0 {},
 	Keycloak {},
+	Custom { jwks_url: String },
 }
 
 impl McpAuthorization {
