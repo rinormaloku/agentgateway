@@ -153,7 +153,9 @@ impl App {
 
 		// Check if authentication is required and JWT token is missing
 		if let Some(auth) = &authn {
-			if req.extensions().get::<Claims>().is_none() && !Self::is_well_known_endpoint(req.uri().path()) {
+			if req.extensions().get::<Claims>().is_none()
+				&& !Self::is_well_known_endpoint(req.uri().path())
+			{
 				return Self::create_auth_required_response(&req, auth).into_response();
 			}
 		}
@@ -215,8 +217,8 @@ impl App {
 	}
 
 	fn is_well_known_endpoint(path: &str) -> bool {
-		path.starts_with("/.well-known/oauth-protected-resource") ||
-		path.starts_with("/.well-known/oauth-authorization-server")
+		path.starts_with("/.well-known/oauth-protected-resource")
+			|| path.starts_with("/.well-known/oauth-authorization-server")
 	}
 }
 
