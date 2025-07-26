@@ -388,7 +388,7 @@ impl App {
 			.method(Method::POST)
 			.body(req.into_body())?;
 
-		let mut upstream = self.client.simple_call(ureq).await?;
+		let mut upstream = client.simple_call(ureq).await?;
 
 		// Add CORS headers to the response
 		let headers = upstream.headers_mut();
