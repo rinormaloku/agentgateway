@@ -247,9 +247,11 @@ pub struct McpTarget {
 
 impl App {
 	fn create_auth_required_response(req: &Request, auth: &McpAuthentication) -> Response {
-		let proxy_url = Self::get_redirect_url(req, "");
-		let www_authenticate_value =
-			format!("Bearer resource_metadata=\"{proxy_url}/.well-known/oauth-protected-resource/mcp\"");
+		let request_path = req.uri().path();
+		let proxy_url = Self::get_redirect_url(req, request_path);
+		let www_authenticate_value = format!(
+			"Bearer resource_metadata=\"{proxy_url}/.well-known/oauth-protected-resource{request_path}\""
+		);
 
 		::http::Response::builder()
 			.status(StatusCode::UNAUTHORIZED)
