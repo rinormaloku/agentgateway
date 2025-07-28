@@ -6,7 +6,7 @@ This example demonstrates how to protect an MCP server (running over `stdio`) wi
 
 ### What this example shows
 
-This example shows how the gateway will handle the client requirements for the MCP Authorization spec by:
+This example shows how the gateway will handle the server requirements for the MCP Authorization spec by:
 
 - Exposing a resource metadata endpoint for OAuth-protected MCP resources
 - Rejecting unauthenticated traffic with appropriate response headers
