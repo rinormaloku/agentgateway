@@ -269,12 +269,12 @@ impl App {
 	}
 
 	async fn protected_resource_metadata(&self, req: Request, auth: McpAuthentication) -> Response {
-		let new_uri = Self::get_redirect_url(&req, "/.well-known/oauth-protected-resource");
+		let new_uri = Self::strip_oauth_protected_resource_prefix(&req);
 		// We will unconditionally redirect them back to our own proxy -- not the Authorization Server.
 		let json_body = json!({
-			"resource": format!("{}/mcp", new_uri),
+			"resource": format!("{new_uri}"),
 			// "authorization_servers": ["https://dev-d1dqcqi4qgzwvabi.us.auth0.com"],
-			"authorization_servers": [format!("{new_uri}")],
+			"authorization_servers": [auth.issuer],
 			"scopes_supported": auth.scopes,
 			"bearer_methods_supported": ["header"],
 			// "resource_documentation": "http://lo/docs",
@@ -312,6 +312,26 @@ impl App {
 			.map(|p| uri.to_string().replace(uri.path(), p))
 			.unwrap_or(uri.to_string())
 	}
+
+	fn strip_oauth_protected_resource_prefix(req: &Request) -> String {
+		let uri = req
+			.extensions()
+			.get::<filters::OriginalUrl>()
+			.map(|u| u.0.clone())
+			.unwrap_or_else(|| req.uri().clone());
+
+		let path = uri.path();
+		const OAUTH_PREFIX: &str = "/.well-known/oauth-protected-resource";
+
+		// Remove the oauth-protected-resource prefix and keep the remaining path
+		if let Some(remaining_path) = path.strip_prefix(OAUTH_PREFIX) {
+			uri.to_string().replace(path, remaining_path)
+		} else {
+			// If the prefix is not found, return the original URI
+			uri.to_string()
+		}
+	}
+
 
 	async fn authorization_server_metadata(
 		&self,

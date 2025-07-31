@@ -6,7 +6,7 @@ binds:
 ## ==========================================================
     - backends:
       - mcp:
-          name: default
+          name: stdio
           targets:
           - name: everything
             stdio:
