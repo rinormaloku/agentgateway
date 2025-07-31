@@ -6,7 +6,6 @@ binds:
 ## ==========================================================
     - backends:
       - mcp:
-          name: stdio
           targets:
           - name: everything
             stdio:
@@ -45,10 +44,8 @@ binds:
 ## ==========================================================
     - backends:
       - mcp:
-          name: mcpbin
           targets:
-          - filters: []
-            mcp:
+          - mcp:
               host: mcpbin.is.solo.io
               path: /remote/mcp
               port: 443
