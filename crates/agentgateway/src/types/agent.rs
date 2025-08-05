@@ -1087,6 +1087,7 @@ pub struct ResourceMetadata {
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct McpAuthentication {
 	pub issuer: String,
+	pub audience: String,
 	pub jwks_url: String,
 	pub provider: Option<McpIDP>,
 	pub resource_metadata: ResourceMetadata,
@@ -1095,11 +1096,19 @@ pub struct McpAuthentication {
 impl McpAuthentication {
 	pub fn as_jwt(&self) -> anyhow::Result<http::jwt::LocalJwtConfig> {
 		Ok(http::jwt::LocalJwtConfig {
-			mode: http::jwt::Mode::Strict,
+			mode: http::jwt::Mode::Optional,
 			issuer: self.issuer.clone(),
-			audiences: vec![self.resource_metadata.resource.clone()],
-			jwks: serdes::FileInlineOrRemote::Remote {
-				url: self.jwks_url.parse()?,
+			audiences: vec![self.audience.clone()],
+			jwks: FileInlineOrRemote::Remote {
+				url: match &self.provider {
+					None | Some(McpIDP::Auth0 { .. }) => {
+						format!("{}/.well-known/jwks.json", self.issuer).parse()?
+					},
+					Some(McpIDP::Keycloak { .. }) => {
+						format!("{}/protocol/openid-connect/certs", self.issuer).parse()?
+					},
+					// Some(McpIDP::Keycloak { realm }) => format!("{}/realms/{realm}/protocol/openid-connect/certs", self.issuer).parse()?,
+				},
 			},
 		})
 	}
