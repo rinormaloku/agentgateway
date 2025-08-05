@@ -271,16 +271,22 @@ impl App {
 	async fn protected_resource_metadata(&self, req: Request, auth: McpAuthentication) -> Response {
 		let new_uri = Self::strip_oauth_protected_resource_prefix(&req);
 		// We will unconditionally redirect them back to our own proxy -- not the Authorization Server.
-		let json_body = json!({
+		let mut json_body = json!({
 			"resource": format!("{new_uri}"),
-			// "authorization_servers": ["https://dev-d1dqcqi4qgzwvabi.us.auth0.com"],
 			"authorization_servers": [auth.issuer],
-			"scopes_supported": auth.scopes,
-			"bearer_methods_supported": ["header"],
-			// "resource_documentation": "http://lo/docs",
+			"scopes_supported": auth.resource_metadata.scopes_supported,
+			"bearer_methods_supported": auth.resource_metadata.bearer_methods_supported,
 			"mcp_protocol_version": "2025-06-18",
 			"resource_type": "mcp-server"
 		});
+
+		// Add optional fields if they exist
+		if let Some(resource_documentation) = &auth.resource_metadata.resource_documentation {
+			json_body["resource_documentation"] = json!(resource_documentation);
+		}
+		if let Some(resource_policy_uri) = &auth.resource_metadata.resource_policy_uri {
+			json_body["resource_policy_uri"] = json!(resource_policy_uri);
+		}
 
 		::http::Response::builder()
 			.status(StatusCode::OK)
@@ -356,7 +362,7 @@ impl App {
 				else {
 					anyhow::bail!("authorization_endpoint missing");
 				};
-				ae.push_str(&format!("?audience={}", auth.audience));
+				ae.push_str(&format!("?audience={}", auth.resource_metadata.resource));
 			},
 			Some(McpIDP::Keycloak { .. }) => {
 				// Keycloak does not support RFC 8707.

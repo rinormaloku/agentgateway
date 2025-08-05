@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../schema/local.json
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - name: mcp
+      policies:
+        backendTLS: {}
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+        timeout:
+          requestTimeout: 1500ms
+        # Keycloak example. Run `docker compose -f keycloak.yaml up`
+        mcpAuthentication:
+          issuer: http://localhost:7080/realms/mcp
+          scopes: ["profile"]
+          audience: http://lo # Does nothing :-(
+          provider:
+            keycloak: {}
+      backends:
+      - mcp:
+          targets:
+          - name: everything
+            stdio:
+              cmd: npx
+              args: ["@modelcontextprotocol/server-everything"]

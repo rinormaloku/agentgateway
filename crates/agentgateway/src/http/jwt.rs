@@ -203,6 +203,17 @@ impl Serialize for Claims {
 
 impl Jwt {
 	pub async fn apply(&self, log: &mut RequestLog, req: &mut Request) -> Result<(), TokenError> {
+		// GET BACK TO THIS
+		// client registration is not an option
+		// Skip JWT validation for MCP well-known endpoints that should be publicly accessible
+		let path = req.uri().path();
+		if path.starts_with("/.well-known/oauth-protected-resource")
+			|| path.starts_with("/.well-known/oauth-authorization-server")
+			|| path == "/client-registration"
+		{
+			return Ok(());
+		}
+
 		let Ok(TypedHeader(Authorization(bearer))) = req
 			.extract_parts::<TypedHeader<Authorization<Bearer>>>()
 			.await

@@ -1,8 +1,17 @@
+# yaml-language-server: $schema=../../schema/local.json
 binds:
 - listeners:
   - routes:
 ## ==========================================================
-## Stdio server: Backend and MCP Authentication
+## Scenario 2: agentgateway acts solely as a resource server
+## (Authentication Server works out of band)
+##
+## In this scenario agentgateway:
+## 1. Exposes protected resource metadata (on behalf of the mcp server)
+## 2. Validates token against the AS jwks
+## 3. Rejects traffic without access token and sets WWW-Authentication header
+##
+## NOTE: No routes for oauth-authorization-server or client-registration
 ## ==========================================================
     - backends:
       - mcp:
@@ -25,19 +34,18 @@ binds:
           allowOrigins:
           - '*'
         mcpAuthentication:
-          audience: http://localhost:3000/stdio/mcp
           issuer: http://localhost:9000
-          provider:
-            custom:
-              jwks_url: http://localhost:9000/.well-known/jwks.json
-          scopes:
-          - read:all
-          bearer_methods_supported:
-          - header
-          - body
-          - query
-          resource_documentation: http://localhost:3000/stdio/docs
-          resource_policy_uri: http://localhost:3000/stdio/policies
+          jwksUrl: http://localhost:9000/.well-known/jwks.json
+          resourceMetadata:
+            resource: http://localhost:3000/stdio/mcp
+            scopesSupported:
+            - read:all
+            bearerMethodsSupported:
+            - header
+            - body
+            - query
+            resourceDocumentation: http://localhost:3000/stdio/docs
+            resourcePolicyUri: http://localhost:3000/stdio/policies
 
 ## ==========================================================
 ## Remote server: Backend and MCP Authentication
@@ -64,18 +72,77 @@ binds:
           allowOrigins:
           - '*'
         mcpAuthentication:
-          audience: http://localhost:3000/remote/mcp
-          issuer: http://localhost:9000
-          provider:
-            custom:
-              jwks_url: http://localhost:9000/.well-known/jwks.json
-          scopes:
-          - read:all
-          bearer_methods_supported:
-          - header
-          - body
-          - query
-          resource_documentation: http://localhost:3000/remote/docs
-          resource_policy_uri: http://localhost:3000/remote/policies
 
+          mode: strict
+          issuer: http://localhost:9000
+          jwksUrl: http://localhost:9000/.well-known/jwks.json
+          resourceMetadata:
+            resource: http://localhost:3000/remote/mcp
+            scopesSupported:
+            - offline_access
+            bearerMethodsSupported:
+            - header
+            - body
+            - query
+            resourceDocumentation: http://localhost:3000/remote/docs
+            resourcePolicyUri: http://localhost:3000/remote/policies
+
+  port: 3000
+
+# ==========================================================
+# Scenario 1: agentgateway adapts traffic for Authorization Servers
+# (e.g., Keycloak that doesn't implement standards as-is)
+
+# In this scenario agentgateway:
+# 1. Exposes protected resource metadata (on behalf of the mcp server)
+# 2. Proxies to the Authorization Server Metadata endpoint
+# 3. Proxies and adapts traffic to the Authorization Server for client registration
+# 4. Validates token against the AS jwks
+# 5. Rejects traffic without access token and sets WWW-Authentication header
+# ==========================================================
+
+# Example configuration for Keycloak:
+
+- listeners:
+  - routes:
+    - backends:
+      - mcp:
+          targets:
+          - name: everything
+            stdio:
+              args:
+              - '@modelcontextprotocol/server-everything'
+              cmd: npx
+      matches:
+      - path:
+          exact: /keycloak/mcp
+      - path:
+          exact: /.well-known/oauth-protected-resource/keycloak/mcp
+      - path:
+          exact: /.well-known/oauth-authorization-server
+      - path:
+          exact: /client-registration
+      policies:
+        cors:
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+          allowOrigins:
+          - '*'
+        mcpAuthentication:
+          mode: strict
+          issuer: http://localhost:3000/realms/mcp
+          jwksUrl: http://localhost:3000/realms/mcp/protocol/openid-connect/certs
+          provider:
+            keycloak: {}
+          resourceMetadata:
+            resource: http://localhost:3000/keycloak/mcp
+            scopesSupported:
+            - offline_access
+            bearerMethodsSupported:
+            - header
+            - body
+            - query
+            resourceDocumentation: http://localhost:3000/keycloak/docs
+            resourcePolicyUri: http://localhost:3000/keycloak/policies
   port: 3000
