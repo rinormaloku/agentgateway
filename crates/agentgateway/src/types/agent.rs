@@ -1067,30 +1067,45 @@ pub struct A2aPolicy {}
 #[apply(schema!)]
 pub struct McpAuthorization(RuleSet);
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct ResourceMetadata {
+	pub resource: String,
+	pub scopes_supported: Vec<String>,
+	pub bearer_methods_supported: Vec<String>,
+	pub resource_documentation: Option<String>,
+	pub resource_policy_uri: Option<String>,
+}
+
 #[apply(schema!)]
 pub struct McpAuthentication {
-	pub mode: http::jwt::Mode,
 	pub issuer: String,
-	pub scopes: Vec<String>,
 	pub audience: String,
+	pub jwks_url: String,
 	pub provider: Option<McpIDP>,
+	pub resource_metadata: ResourceMetadata,
 }
 
 impl McpAuthentication {
 	pub fn as_jwt(&self) -> anyhow::Result<http::jwt::LocalJwtConfig> {
 		Ok(http::jwt::LocalJwtConfig {
-			mode: self.mode,
+			mode: http::jwt::Mode::Optional,
 			issuer: self.issuer.clone(),
 			audiences: vec![self.audience.clone()],
 			jwks: FileInlineOrRemote::Remote {
-				url: match &self.provider {
-					None | Some(McpIDP::Auth0 { .. }) => {
-						format!("{}/.well-known/jwks.json", self.issuer).parse()?
-					},
-					Some(McpIDP::Keycloak { .. }) => {
-						format!("{}/protocol/openid-connect/certs", self.issuer).parse()?
-					},
-					// Some(McpIDP::Keycloak { realm }) => format!("{}/realms/{realm}/protocol/openid-connect/certs", self.issuer).parse()?,
+				url: if !self.jwks_url.is_empty() {
+					self.jwks_url.parse()?
+				} else {
+					match &self.provider {
+						None | Some(McpIDP::Auth0 { .. }) => {
+							format!("{}/.well-known/jwks.json", self.issuer).parse()?
+						},
+						Some(McpIDP::Keycloak { .. }) => {
+							format!("{}/protocol/openid-connect/certs", self.issuer).parse()?
+						},
+						// Some(McpIDP::Keycloak { realm }) => format!("{}/realms/{realm}/protocol/openid-connect/certs", self.issuer).parse()?,
+					}
 				},
 			},
 		})

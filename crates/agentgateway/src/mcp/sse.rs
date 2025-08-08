@@ -4,6 +4,8 @@ use std::ops::IndexMut;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use bytes::Bytes;
+
 use a2a_sdk::SendTaskStreamingResponseResult::Status;
 use agent_core::drain::DrainWatcher;
 use agent_core::prelude::Strng;
@@ -149,6 +151,16 @@ impl App {
 		// MCP context is added later
 		req.extensions_mut().insert(Arc::new(ctx));
 
+		// Check if authentication is required and JWT token is missing
+		if let Some(auth) = &authn {
+			if req.extensions().get::<Claims>().is_none()
+				&& !Self::is_well_known_endpoint(req.uri().path())
+			{
+				return Self::create_auth_required_response(&req, auth).into_response();
+			}
+		}
+
+		println!("==== req.uri().path(): {}", req.uri().path());
 		match (req.uri().path(), req.method(), authn) {
 			("/sse", m, _) if m == Method::GET => Self::sse_get_handler(
 				self.sse_txs.clone(),
@@ -164,23 +176,23 @@ impl App {
 			.await
 			.into_response(),
 			("/sse", m, _) if m == Method::POST => self.sse_post_handler(req).await.into_response(),
-			("/.well-known/oauth-protected-resource", _, Some(auth)) => self
-				.protected_resource_metadata(req, auth)
-				.await
-				.into_response(),
-			("/.well-known/oauth-authorization-server", _, Some(auth)) => self
-				.authorization_server_metadata(req, auth, client.clone())
-				.await
-				.map_err(|e| {
-					warn!("authorization_server_metadata error: {}", e);
-					StatusCode::INTERNAL_SERVER_ERROR
-				})
-				.into_response(),
-			("/client-registration", _, Some(auth)) => self
+			(path, _, Some(auth)) if path.ends_with("client-registration") => self
 				.client_registration(req, auth, client.clone())
 				.await
 				.map_err(|e| {
 					warn!("client_registration error: {}", e);
+					StatusCode::INTERNAL_SERVER_ERROR
+				})
+				.into_response(),
+			(path, _, Some(auth)) if path.starts_with("/.well-known/oauth-protected-resource") => self
+				.protected_resource_metadata(req, auth)
+				.await
+				.into_response(),
+			(path, _, Some(auth)) if path.starts_with("/.well-known/oauth-authorization-server") => self
+				.authorization_server_metadata(req, auth, client.clone())
+				.await
+				.map_err(|e| {
+					warn!("authorization_server_metadata error: {}", e);
 					StatusCode::INTERNAL_SERVER_ERROR
 				})
 				.into_response(),
@@ -206,6 +218,11 @@ impl App {
 				streamable.handle(req).await.map(axum::body::Body::new)
 			},
 		}
+	}
+
+	fn is_well_known_endpoint(path: &str) -> bool {
+		path.starts_with("/.well-known/oauth-protected-resource")
+			|| path.starts_with("/.well-known/oauth-authorization-server")
 	}
 }
 
@@ -233,23 +250,74 @@ pub struct McpTarget {
 }
 
 impl App {
-	async fn protected_resource_metadata(
-		&self,
-		req: Request,
-		auth: McpAuthentication,
-	) -> Json<Value> {
-		let new_uri = Self::get_redirect_url(&req, "/.well-known/oauth-protected-resource");
+	fn create_auth_required_response(req: &Request, auth: &McpAuthentication) -> Response {
+		let request_path = req.uri().path();
+		let proxy_url = Self::get_redirect_url(req, request_path);
+		let www_authenticate_value = format!(
+			"Bearer resource_metadata=\"{proxy_url}/.well-known/oauth-protected-resource{request_path}\""
+		);
+
+		::http::Response::builder()
+			.status(StatusCode::UNAUTHORIZED)
+			.header("www-authenticate", www_authenticate_value)
+			.header("content-type", "application/json")
+			.body(axum::body::Body::from(Bytes::from(
+				r#"{"error":"unauthorized","error_description":"JWT token required"}"#,
+			)))
+			.unwrap_or_else(|_| {
+				::http::Response::builder()
+					.status(StatusCode::INTERNAL_SERVER_ERROR)
+					.body(axum::body::Body::empty())
+					.unwrap()
+			})
+	}
+
+	async fn protected_resource_metadata(&self, req: Request, auth: McpAuthentication) -> Response {
+		let new_uri = Self::strip_oauth_protected_resource_prefix(&req);
+
+		// Determine the issuer to use - either use the same request URL and path that it was initially with,
+		// or else keep the auth.issuer
+		let issuer = if auth.provider.is_some() {
+			// When a provider is configured, use the same request URL with the well-known prefix stripped
+			Self::strip_oauth_protected_resource_prefix(&req)
+		} else {
+			// No provider configured, use the original issuer
+			auth.issuer
+		};
+
 		// We will unconditionally redirect them back to our own proxy -- not the Authorization Server.
-		Json(json!({
-			"resource": format!("{}/mcp", new_uri),
-			// "authorization_servers": ["https://dev-d1dqcqi4qgzwvabi.us.auth0.com"],
-			"authorization_servers": [format!("{new_uri}")],
-			"scopes_supported": auth.scopes,
-			"bearer_methods_supported": ["header"],
-			// "resource_documentation": "http://lo/docs",
+		let mut json_body = json!({
+			"resource": format!("{new_uri}"),
+			"authorization_servers": [issuer],
+			"scopes_supported": auth.resource_metadata.scopes_supported,
+			"bearer_methods_supported": auth.resource_metadata.bearer_methods_supported,
 			"mcp_protocol_version": "2025-06-18",
 			"resource_type": "mcp-server"
-		}))
+		});
+
+		// Add optional fields if they exist
+		if let Some(resource_documentation) = &auth.resource_metadata.resource_documentation {
+			json_body["resource_documentation"] = json!(resource_documentation);
+		}
+		if let Some(resource_policy_uri) = &auth.resource_metadata.resource_policy_uri {
+			json_body["resource_policy_uri"] = json!(resource_policy_uri);
+		}
+
+		::http::Response::builder()
+			.status(StatusCode::OK)
+			.header("content-type", "application/json")
+			.header("access-control-allow-origin", "*")
+			.header("access-control-allow-methods", "GET, OPTIONS")
+			.header("access-control-allow-headers", "content-type")
+			.body(axum::body::Body::from(Bytes::from(
+				serde_json::to_string(&json_body).unwrap_or_default(),
+			)))
+			.unwrap_or_else(|_| {
+				::http::Response::builder()
+					.status(StatusCode::INTERNAL_SERVER_ERROR)
+					.body(axum::body::Body::empty())
+					.unwrap()
+			})
 	}
 
 	fn get_redirect_url(req: &Request, strip_base: &str) -> String {
@@ -266,13 +334,50 @@ impl App {
 			.unwrap_or(uri.to_string())
 	}
 
+	fn strip_oauth_protected_resource_prefix(req: &Request) -> String {
+		let uri = req
+			.extensions()
+			.get::<filters::OriginalUrl>()
+			.map(|u| u.0.clone())
+			.unwrap_or_else(|| req.uri().clone());
+
+		let path = uri.path();
+		const OAUTH_PREFIX: &str = "/.well-known/oauth-protected-resource";
+
+		// Remove the oauth-protected-resource prefix and keep the remaining path
+		if let Some(remaining_path) = path.strip_prefix(OAUTH_PREFIX) {
+			uri.to_string().replace(path, remaining_path)
+		} else {
+			// If the prefix is not found, return the original URI
+			uri.to_string()
+		}
+	}
+
+	fn strip_oauth_authorization_server_prefix(req: &Request) -> String {
+		let uri = req
+			.extensions()
+			.get::<filters::OriginalUrl>()
+			.map(|u| u.0.clone())
+			.unwrap_or_else(|| req.uri().clone());
+
+		let path = uri.path();
+		const OAUTH_PREFIX: &str = "/.well-known/oauth-authorization-server";
+
+		// Remove the oauth-protected-resource prefix and keep the remaining path
+		if let Some(remaining_path) = path.strip_prefix(OAUTH_PREFIX) {
+			uri.to_string().replace(path, remaining_path)
+		} else {
+			// If the prefix is not found, return the original URI
+			uri.to_string()
+		}
+	}
+
 	async fn authorization_server_metadata(
 		&self,
 		req: Request,
 		auth: McpAuthentication,
 		client: PolicyClient,
-	) -> anyhow::Result<Json<Value>> {
-		let new_uri = Self::get_redirect_url(&req, "/.well-known/oauth-authorization-server");
+	) -> anyhow::Result<Response> {
 		let ureq = ::http::Request::builder()
 			.uri(format!(
 				"{}/.well-known/oauth-authorization-server",
@@ -300,16 +405,34 @@ impl App {
 				// Keycloak doesn't do CORS for client registrations
 				// https://github.com/keycloak/keycloak/issues/39629
 				// We can workaround this by proxying it
+
+				let current_uri = req
+					.extensions()
+					.get::<filters::OriginalUrl>()
+					.map(|u| u.0.clone())
+					.unwrap_or_else(|| req.uri().clone());
 				let Some(serde_json::Value::String(re)) =
 					json::traverse_mut(&mut resp, &["registration_endpoint"])
 				else {
 					anyhow::bail!("registration_endpoint missing");
 				};
-				*re = format!("{new_uri}/client-registration");
+				*re = format!("{current_uri}/client-registration");
 			},
 			_ => {},
 		}
-		Ok(Json(resp))
+
+		let response = ::http::Response::builder()
+			.status(StatusCode::OK)
+			.header("content-type", "application/json")
+			.header("access-control-allow-origin", "*")
+			.header("access-control-allow-methods", "GET, OPTIONS")
+			.header("access-control-allow-headers", "content-type")
+			.body(axum::body::Body::from(Bytes::from(serde_json::to_string(
+				&resp,
+			)?)))
+			.map_err(|e| anyhow::anyhow!("Failed to build response: {}", e))?;
+
+		Ok(response)
 	}
 
 	async fn client_registration(
@@ -318,7 +441,6 @@ impl App {
 		auth: McpAuthentication,
 		client: PolicyClient,
 	) -> anyhow::Result<Response> {
-		let new_uri = Self::get_redirect_url(&req, "/.well-known/oauth-authorization-server");
 		let ureq = ::http::Request::builder()
 			.uri(format!(
 				"{}/clients-registrations/openid-connect",
@@ -326,7 +448,21 @@ impl App {
 			))
 			.method(Method::POST)
 			.body(req.into_body())?;
-		let upstream = client.simple_call(ureq).await?;
+
+		let mut upstream = client.simple_call(ureq).await?;
+
+		// Add CORS headers to the response
+		let headers = upstream.headers_mut();
+		headers.insert("access-control-allow-origin", "*".parse().unwrap());
+		headers.insert(
+			"access-control-allow-methods",
+			"POST, OPTIONS".parse().unwrap(),
+		);
+		headers.insert(
+			"access-control-allow-headers",
+			"content-type".parse().unwrap(),
+		);
+
 		Ok(upstream)
 	}
 

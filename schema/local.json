@@ -981,35 +981,10 @@
                               "null"
                             ],
                             "properties": {
-                              "mode": {
-                                "oneOf": [
-                                  {
-                                    "description": "A valid token, issued by a configured issuer, must be present.",
-                                    "type": "string",
-                                    "const": "strict"
-                                  },
-                                  {
-                                    "description": "If a token exists, validate it.\nThis is the default option.\nWarning: this allows requests without a JWT token!",
-                                    "type": "string",
-                                    "const": "optional"
-                                  },
-                                  {
-                                    "description": "Requests are never rejected. This is useful for usage of claims in later steps (authorization, logging, etc).\nWarning: this allows requests without a JWT token!",
-                                    "type": "string",
-                                    "const": "permissive"
-                                  }
-                                ]
-                              },
                               "issuer": {
                                 "type": "string"
                               },
-                              "scopes": {
-                                "type": "array",
-                                "items": {
-                                  "type": "string"
-                                }
-                              },
-                              "audience": {
+                              "jwksUrl": {
                                 "type": "string"
                               },
                               "provider": {
@@ -1048,14 +1023,50 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "resourceMetadata": {
+                                "type": "object",
+                                "properties": {
+                                  "resource": {
+                                    "type": "string"
+                                  },
+                                  "scopesSupported": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "bearerMethodsSupported": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "resourceDocumentation": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "resourcePolicyUri": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "resource",
+                                  "scopesSupported",
+                                  "bearerMethodsSupported"
+                                ]
                               }
                             },
                             "additionalProperties": false,
                             "required": [
-                              "mode",
                               "issuer",
-                              "scopes",
-                              "audience"
+                              "jwksUrl",
+                              "resourceMetadata"
                             ],
                             "default": null
                           },
