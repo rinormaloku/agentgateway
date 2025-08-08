@@ -160,7 +160,6 @@ impl App {
 			}
 		}
 
-		println!("==== req.uri().path(): {}", req.uri().path());
 		match (req.uri().path(), req.method(), authn) {
 			("/sse", m, _) if m == Method::GET => Self::sse_get_handler(
 				self.sse_txs.clone(),
@@ -285,23 +284,7 @@ impl App {
 			auth.issuer
 		};
 
-		// We will unconditionally redirect them back to our own proxy -- not the Authorization Server.
-		let mut json_body = json!({
-			"resource": format!("{new_uri}"),
-			"authorization_servers": [issuer],
-			"scopes_supported": auth.resource_metadata.scopes_supported,
-			"bearer_methods_supported": auth.resource_metadata.bearer_methods_supported,
-			"mcp_protocol_version": "2025-06-18",
-			"resource_type": "mcp-server"
-		});
-
-		// Add optional fields if they exist
-		if let Some(resource_documentation) = &auth.resource_metadata.resource_documentation {
-			json_body["resource_documentation"] = json!(resource_documentation);
-		}
-		if let Some(resource_policy_uri) = &auth.resource_metadata.resource_policy_uri {
-			json_body["resource_policy_uri"] = json!(resource_policy_uri);
-		}
+		let json_body = auth.resource_metadata.to_rfc_json(new_uri, issuer);
 
 		::http::Response::builder()
 			.status(StatusCode::OK)

@@ -984,6 +984,9 @@
                               "issuer": {
                                 "type": "string"
                               },
+                              "audience": {
+                                "type": "string"
+                              },
                               "jwksUrl": {
                                 "type": "string"
                               },
@@ -1029,42 +1032,18 @@
                                 "properties": {
                                   "resource": {
                                     "type": "string"
-                                  },
-                                  "scopesSupported": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "bearerMethodsSupported": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "resourceDocumentation": {
-                                    "type": [
-                                      "string",
-                                      "null"
-                                    ]
-                                  },
-                                  "resourcePolicyUri": {
-                                    "type": [
-                                      "string",
-                                      "null"
-                                    ]
                                   }
                                 },
                                 "required": [
-                                  "resource",
-                                  "scopesSupported",
-                                  "bearerMethodsSupported"
-                                ]
+                                  "resource"
+                                ],
+                                "additionalProperties": true
                               }
                             },
                             "additionalProperties": false,
                             "required": [
                               "issuer",
+                              "audience",
                               "jwksUrl",
                               "resourceMetadata"
                             ],

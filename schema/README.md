@@ -129,16 +129,13 @@ This defaults to 'true'.|
 |`binds[].listeners[].routes[].policies.mcpAuthorization.rules`||
 |`binds[].listeners[].routes[].policies.mcpAuthentication`|Authentication for MCP clients.|
 |`binds[].listeners[].routes[].policies.mcpAuthentication.issuer`||
+|`binds[].listeners[].routes[].policies.mcpAuthentication.audience`||
 |`binds[].listeners[].routes[].policies.mcpAuthentication.jwksUrl`||
 |`binds[].listeners[].routes[].policies.mcpAuthentication.provider`||
 |`binds[].listeners[].routes[].policies.mcpAuthentication.provider.(any)(1)auth0`||
 |`binds[].listeners[].routes[].policies.mcpAuthentication.provider.(any)(1)keycloak`||
 |`binds[].listeners[].routes[].policies.mcpAuthentication.resourceMetadata`||
 |`binds[].listeners[].routes[].policies.mcpAuthentication.resourceMetadata.resource`||
-|`binds[].listeners[].routes[].policies.mcpAuthentication.resourceMetadata.scopesSupported`||
-|`binds[].listeners[].routes[].policies.mcpAuthentication.resourceMetadata.bearerMethodsSupported`||
-|`binds[].listeners[].routes[].policies.mcpAuthentication.resourceMetadata.resourceDocumentation`||
-|`binds[].listeners[].routes[].policies.mcpAuthentication.resourceMetadata.resourcePolicyUri`||
 |`binds[].listeners[].routes[].policies.a2a`|Mark this traffic as A2A to enable A2A processing and telemetry.|
 |`binds[].listeners[].routes[].policies.ai`|Mark this as LLM traffic to enable LLM processing.|
 |`binds[].listeners[].routes[].policies.ai.promptGuard`||

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::{cmp, net};
 
 use anyhow::anyhow;
+use heck::ToSnakeCase;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use macro_rules_attribute::apply;
@@ -23,6 +24,8 @@ use rustls_pemfile::Item;
 use secrecy::SecretString;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
+use std::collections::BTreeMap;
 use thiserror::Error;
 
 use crate::http::auth::BackendAuth;
@@ -1072,10 +1075,45 @@ pub struct McpAuthorization(RuleSet);
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ResourceMetadata {
 	pub resource: String,
-	pub scopes_supported: Vec<String>,
-	pub bearer_methods_supported: Vec<String>,
-	pub resource_documentation: Option<String>,
-	pub resource_policy_uri: Option<String>,
+	#[serde(flatten)]
+	pub extra: BTreeMap<String, Value>,
+}
+
+impl ResourceMetadata {
+	/// Build RFC-compliant JSON for the protected resource metadata.
+	///
+	/// - Enforces computed `resource` and `authorization_servers`.
+	/// - Converts any additional config keys from camelCase to snake_case.
+	/// - Adds MCP-specific fields used by the gateway.
+	pub fn to_rfc_json(&self, resource_uri: String, issuer: String) -> Value {
+		let mut map = serde_json::Map::new();
+
+		// Copy user-provided extra keys, converting to snake_case, while preventing overrides
+		// of fields we compute.
+		for (key, value) in &self.extra {
+			let snake = key.to_snake_case();
+			if snake == "resource" || snake == "authorization_servers" {
+				continue;
+			}
+			map.insert(snake, value.clone());
+		}
+
+		// Computed fields
+		map.insert("resource".into(), Value::String(resource_uri));
+		map.insert(
+			"authorization_servers".into(),
+			Value::Array(vec![Value::String(issuer)]),
+		);
+
+		// MCP-specific additions
+		map.insert(
+			"mcp_protocol_version".into(),
+			Value::String("2025-06-18".into()),
+		);
+		map.insert("resource_type".into(), Value::String("mcp-server".into()));
+
+		Value::Object(map)
+	}
 }
 
 #[apply(schema!)]
