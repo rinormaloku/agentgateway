@@ -16,10 +16,10 @@ Let's look at the config to understand what's going on.
 For the demo, start Keycloak and the mock authorization server on `http://localhost:9000`:
 
 ```bash
-make run-validate-deps
+make run-validation-deps
 ```
 
-> You can stop the dependencies with the command `make stop-validate-deps`
+> You can stop the dependencies with the command `make stop-validation-deps`
 
 ---
 
@@ -174,6 +174,8 @@ Notes:
   npx @modelcontextprotocol/inspector
   ```
   Set transport to "Streamable" and URL to `http://localhost:3000/stdio/mcp` (`/remote/mcp` or `/keycloak/mcp`). 
+
+  The MCP Authorization flow starts after the initial unauthorized request. The mock server redirects back to the MCP client automatically, meanwhile for Keycloak use the credentials `testuser` and `testpass` to authenticate.
 
 ---
 
