@@ -119,7 +119,8 @@ Also in `examples/mcp-authentication/config.yaml`:
 
 ### Scenario C: Adapting a vendor Authorization Server (e.g., Keycloak)
 
-When your Authorization Server doesn’t implement the spec as-is, agentgateway can adapt the required endpoints while still validating JWTs.
+When your Authorization Server doesn’t implement the spec as-is, agentgateway can fill in the gaps.
+Currently, only two providers are supported: Keycloak and Auth0.
 
 Excerpt from `examples/mcp-authentication/config.yaml`:
 
@@ -156,6 +157,23 @@ Excerpt from `examples/mcp-authentication/config.yaml`:
         resourcePolicyUri: http://localhost:3000/keycloak/policies
 ```
 
+What setting a provider does (high level):
+- Agentgateway acts as an Authorization Server facade for the MCP client and exposes the well-known endpoints itself:
+  - Resource metadata at `/.well-known/oauth-protected-resource/...`
+  - Authorization Server metadata at `/.well-known/oauth-authorization-server/...`
+- In the resource metadata it returns, the `authorization_servers` value is set to the gateway’s own URL (not the upstream issuer) so clients talk to the gateway, and the gateway adapts things as needed.
+- The AS metadata is fetched from your configured `issuer` and minimally rewritten per provider to smooth over incompatibilities.
+- If `jwksUrl` is omitted, the gateway derives it from the provider:
+  - Auth0 → `<issuer>/.well-known/jwks.json`
+  - Keycloak → `<issuer>/protocol/openid-connect/certs`
+
+Auth0-specific notes:
+- Gateway appends `?audience=...` to the authorization endpoint it exposes.
+
+Keycloak-specific notes:
+- No RFC 8707 support; use a fixed audience in config.
+- Client registration is proxied by the gateway at `.../client-registration` to forward to Keycloak’s `clients-registrations/openid-connect`.
+
 Notes:
 - Omit the `provider` block for spec-compliant servers. Use it only when adaptation is needed.
 
@@ -173,7 +191,7 @@ Notes:
   ```bash
   npx @modelcontextprotocol/inspector
   ```
-  Set transport to "Streamable" and URL to `http://localhost:3000/stdio/mcp` (`/remote/mcp` or `/keycloak/mcp`). 
+  Set transport to "Streamable" and URL to `http://localhost:3000/stdio/mcp` (`/remote/mcp` or `/keycloak/mcp`).
 
   The MCP Authorization flow starts after the initial unauthorized request. The mock server redirects back to the MCP client automatically, meanwhile for Keycloak use the credentials `testuser` and `testpass` to authenticate.
 

@@ -43,7 +43,7 @@ case "${1:-}" in
     popd >/dev/null
 
     # Realm import may complete after container is up; wait for JWKS specifically
-    if ! wait_for_http_ok "$KEYCLOAK_REALM_JWKS_ENDPOINT" 180 3; then
+    if ! wait_for_http_ok "$KEYCLOAK_REALM_JWKS_ENDPOINT" 240 3; then
       echo "Keycloak realm JWKS endpoint did not become available in time" >&2
       exit 1
     fi
