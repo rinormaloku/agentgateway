@@ -485,10 +485,12 @@ async fn persist_file_config(app: &App, config_json: &Value) -> Result<(), Error
 	let yaml_file_content = {
 		let mut document =
 			yaml_serde_edit::YamlObject::<Value>::parse(&current).map_err(anyhow::Error::from)?;
-		document
-			.set(config_json.clone())
-			.map_err(anyhow::Error::from)?;
-		let content = document.get_string();
+		// Attempt to edit it in place, or fallback to complete replacement
+		let content = match document.set(config_json.clone()) {
+			Ok(()) => document.get_string().to_owned(),
+			Err(yaml_serde_edit::Error::RoundTrip) => yaml::to_string(config_json)?,
+			Err(e) => return Err(anyhow::Error::from(e).into()),
+		};
 		if content
 			.lines()
 			.any(|line| line.trim_start().starts_with("# yaml-language-server:"))
