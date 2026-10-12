@@ -961,7 +961,8 @@ h4.field-label {
 	background: color-mix(in srgb, var(--bad-bg) 48%, var(--surface));
 }
 
-.field.invalid > small {
+.field.invalid > small,
+.field.invalid > .field-control > small {
 	color: var(--bad);
 	font-weight: 600;
 }
@@ -969,6 +970,15 @@ h4.field-label {
 .help-icon {
 	display: inline-flex;
 	align-items: center;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	padding: 0;
+}
+
+.help-icon:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
 }
 
 .two-column {
@@ -4255,6 +4265,31 @@ tbody tr:hover {
 	flex-direction: column;
 	gap: 7px;
 	margin-bottom: 14px;
+}
+
+.field-with-help {
+	display: grid;
+	grid-template-columns: minmax(0, max-content) minmax(13px, 1fr);
+	column-gap: 5px;
+}
+
+.field-control {
+	display: contents;
+}
+
+.field-control > .field-label {
+	grid-column: 1;
+	grid-row: 1;
+}
+
+.field-control > :not(.field-label) {
+	grid-column: 1 / -1;
+}
+
+.field-with-help > .tooltip-wrap {
+	grid-column: 2;
+	grid-row: 1;
+	place-self: center start;
 }
 
 .target-list {
