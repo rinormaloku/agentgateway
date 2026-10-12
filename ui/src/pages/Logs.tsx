@@ -359,6 +359,7 @@ export function LogsPage() {
 								values={logFilters[dimension]}
 								placeholder={`All ${meta.filterLabel.toLowerCase()}`}
 								allLabel={`All ${meta.filterLabel.toLowerCase()}`}
+								searchLabel={`Search ${meta.label.toLowerCase()}`}
 								onChange={values =>
 									setLogFilters(current => ({
 										...current,
@@ -890,6 +891,7 @@ export function AnalyticsPage() {
 									values={filters[dimension]}
 									placeholder={`All ${meta.filterLabel.toLowerCase()}`}
 									allLabel={`All ${meta.filterLabel.toLowerCase()}`}
+									searchLabel={`Search ${meta.label.toLowerCase()}`}
 									onChange={values => updateFilter(dimension, values)}
 								/>
 							);
