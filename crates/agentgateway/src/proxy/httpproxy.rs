@@ -3822,6 +3822,7 @@ pub(crate) fn set_final_response_fields(
 ) {
 	log.status = Some(resp.status());
 	log.reason = Some(*reason);
+	log.grpc_status.store(parse_grpc_status(resp.headers()));
 	log.retry_after = http::outlierdetection::retry_after(resp.status(), resp.headers());
 	log.response_snapshot = log.cel.cel_context.maybe_snapshot_response(resp);
 }
