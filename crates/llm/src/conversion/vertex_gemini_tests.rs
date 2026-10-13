@@ -239,6 +239,23 @@ fn file_part_without_data_or_id_is_rejected() {
 }
 
 #[test]
+fn rejected_signed_url_omits_query_from_error() {
+	let err = from_completions::translate(
+		&req(file_content(json!({
+			"file_id": "https://storage.googleapis.com/bucket/object?X-Goog-Signature=secret"
+		}))),
+		true,
+	)
+	.expect_err("extension-less URL without a MIME hint must be rejected");
+	let msg = err.to_string();
+	assert!(!msg.contains("secret"), "{msg}");
+	assert!(
+		msg.contains("https://storage.googleapis.com/bucket/object"),
+		"{msg}"
+	);
+}
+
+#[test]
 fn empty_string_user_content_is_preserved() {
 	let g = to_gemini(json!({
 		"model": "gemini-2.5-flash",
