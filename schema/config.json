@@ -6871,6 +6871,11 @@
           "description": "Browser sessions, or an ID token for this client sent as `Authorization: Bearer <token>`.\nThis lets non-browser clients authenticate with a token obtained from the provider directly.",
           "type": "string",
           "const": "sessionOrBearer"
+        },
+        {
+          "description": "Like `sessionOrBearer`, but lets unauthenticated non-navigation requests continue to later\npolicies with their credentials intact. Browser navigations retain the normal login behavior.\n\n**Warning:** Pair this mode with `authorization` or another enforcement point.",
+          "type": "string",
+          "const": "permissive"
         }
       ]
     },
