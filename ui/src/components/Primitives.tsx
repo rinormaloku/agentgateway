@@ -11,11 +11,12 @@ import {
 } from 'lucide-react';
 import type {
 	CSSProperties,
+	ReactElement,
 	KeyboardEvent as ReactKeyboardEvent,
 	MouseEvent as ReactMouseEvent,
 	ReactNode
 } from 'react';
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { cloneElement, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 const drawerStack: symbol[] = [];
 
@@ -71,6 +72,7 @@ export function Dropdown(props: {
 		searchText?: string;
 	}>;
 	onChange: (value: string) => void;
+	id?: string;
 	ariaLabel: string;
 	placeholder?: ReactNode;
 	searchable?: boolean;
@@ -249,6 +251,7 @@ export function Dropdown(props: {
 				type="button"
 				role="combobox"
 				ref={triggerRef}
+				id={props.id}
 				aria-haspopup="listbox"
 				aria-expanded={open}
 				aria-controls={`${id}-listbox`}
@@ -809,19 +812,34 @@ export function EmptyState(props: { title: string; description: string; action?:
 
 export function Field(props: {
 	label: string;
-	children: ReactNode;
+	children:
+		| ReactElement<{ id?: string; 'aria-describedby'?: string }>
+		| ((id: string, hintId?: string) => ReactNode);
 	hint?: string;
 	className?: string;
 	tooltip?: string;
 }) {
+	const generatedId = useId();
+	const hintId = useId();
+	const describedBy = props.hint ? hintId : undefined;
+	const id =
+		typeof props.children === 'function' ? generatedId : (props.children.props.id ?? generatedId);
 	const className = props.className ? `field ${props.className}` : 'field';
 	const control = (
-		// biome-ignore lint/a11y/noLabelWithoutControl: Existing lint violation; remove this suppression when the underlying issue is fixed.
-		<label className={props.tooltip ? 'field field-control' : className}>
-			<span className="field-label">{props.label}</span>
-			{props.children}
-			{props.hint ? <small>{props.hint}</small> : null}
-		</label>
+		<div className={props.tooltip ? 'field field-control' : className}>
+			<span className="field-label">
+				<label htmlFor={id}>{props.label}</label>
+			</span>
+			{typeof props.children === 'function'
+				? props.children(id, describedBy)
+				: cloneElement(props.children, {
+						id,
+						'aria-describedby':
+							[props.children.props['aria-describedby'], describedBy].filter(Boolean).join(' ') ||
+							undefined
+					})}
+			{props.hint ? <small id={hintId}>{props.hint}</small> : null}
+		</div>
 	);
 	if (!props.tooltip) return control;
 	return (
