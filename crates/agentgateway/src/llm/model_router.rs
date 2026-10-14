@@ -115,6 +115,17 @@ static SERVING_ENDPOINTS: LazyLock<Vec<(EndpointMatch, Option<llm::RouteType>, &
 				));
 			}
 		}
+		// After the Gemini routes, so `/v1/models/{model}:generateContent` is classified as Gemini.
+		for (pattern, template) in [
+			(r"^/v1/models/.+$", "/v1/models/{model}"),
+			(r"^/models/.+$", "/models/{model}"),
+		] {
+			endpoints.push((
+				EndpointMatch::Regex(regex::Regex::new(pattern).expect("valid model route regex")),
+				Some(Models),
+				template,
+			));
+		}
 		endpoints.push((
 			EndpointMatch::Regex(
 				regex::Regex::new(
@@ -374,56 +385,115 @@ impl ModelRouter {
 	}
 
 	fn model_list_response(&self, req: &Request, catalog: &llm::catalog::ModelCatalog) -> Response {
-		let catalog =
-			(self.discovery == llm::discovery::Discovery::Catalog).then(|| catalog.snapshot());
+		let catalog = catalog.snapshot();
+		let expand = self.discovery == llm::discovery::Discovery::Catalog;
 		let data = self
 			.models
 			.iter()
 			.filter(|model| model.visibility == ModelVisibility::Public)
 			.filter(|model| model_authorized(model, req))
 			.flat_map(|model| {
-				let names: Vec<String> = if let Some(catalog) = &catalog
+				if expand
 					&& let Some(discovery) = &model.discovery
+					&& discovery.expands(&model.name)
 					&& let Some(model_ids) = catalog.model_ids(&discovery.provider)
 				{
 					model_ids
 						// Get all models from the catalog. Apply our transformation to it
 						// For example, an expression `model.stripPrefix("foo/")` would become Prefix(foo/);
 						// we would take gpt-4o and make it foo/gpt-4o.
-						.filter_map(|name| discovery.transformation.apply(name))
-						.filter(|name| {
+						.filter_map(|id| Some((id, discovery.transformation.apply(id)?)))
+						.filter(|(_, name)| {
 							// Now check it still matches the model match (e.g 'foo/*') and we are authorized for this model
 							model_name_matches(&model.name, name) && api_key_model_authorized(req, name)
 						})
-						.map(|name| name.into_owned())
-						.collect()
+						.map(|(id, name)| {
+							llm::model_list::ModelInfo::new(
+								name.into_owned(),
+								model.created,
+								Some(discovery.provider.clone()),
+								catalog.model(&discovery.provider, id),
+							)
+						})
+						.collect::<Vec<_>>()
 				} else {
 					api_key_discoverable_models(req, &model.name)
-						.map(str::to_owned)
+						.map(|name| model_info(model, name.to_owned(), &catalog))
 						.collect()
-				};
-				names.into_iter().map(|name| (name, model.created))
+				}
 			})
 			.chain(
 				self
 					.virtual_models
 					.iter()
 					.filter(|model| api_key_model_authorized(req, &model.name))
-					.map(|model| (model.name.clone(), model.created)),
+					.map(|model| self.virtual_model_info(model, &catalog)),
 			)
-			.unique_by(|(name, _)| name.clone())
-			.map(|(name, created)| model_list_entry(&name, created))
+			.unique_by(|model| model.id.clone())
 			.collect::<Vec<_>>();
-		let body = serde_json::json!({
-			"data": data,
-			"object": "list",
-		})
-		.to_string();
+		let path = req.uri().path().trim_end_matches('/');
+		let body = match path
+			.strip_prefix("/v1/models/")
+			.or_else(|| path.strip_prefix("/models/"))
+		{
+			Some(id) => {
+				let id = percent_encoding::percent_decode_str(id).decode_utf8_lossy();
+				let Some(model) = data.iter().find(|model| model.id == id) else {
+					return llm_error_response(
+						::http::StatusCode::NOT_FOUND,
+						&format!("The model `{id}` does not exist"),
+						"model_not_found",
+					);
+				};
+				llm::model_list::render_model(model)
+			},
+			None => {
+				let limit = req
+					.uri()
+					.query()
+					.and_then(|query| {
+						url::form_urlencoded::parse(query.as_bytes()).find(|(key, _)| key == "limit")
+					})
+					.and_then(|(_, limit)| limit.parse::<usize>().ok())
+					.unwrap_or(data.len());
+				llm::model_list::render(&data[..limit.min(data.len())])
+			},
+		};
 		::http::Response::builder()
 			.status(::http::StatusCode::OK)
 			.header(::http::header::CONTENT_TYPE, "application/json")
 			.body(http::Body::from(body))
 			.expect("LLM model list response is valid")
+	}
+
+	fn virtual_model_info(
+		&self,
+		model: &VirtualModelRoute,
+		catalog: &llm::catalog::CatalogSnapshot,
+	) -> llm::model_list::ModelInfo {
+		let targets: Vec<&str> = match &model.routing {
+			VirtualModelRouting::Weighted(targets) => targets.iter().map(|t| t.model.as_str()).collect(),
+			VirtualModelRouting::Conditional(targets) => {
+				targets.iter().map(|t| t.model.as_str()).collect()
+			},
+			// Failover targets are compiled into a backend and callouts pick targets at request time.
+			VirtualModelRouting::Failover { .. } | VirtualModelRouting::Callout(_) => vec![],
+		};
+		let targets = targets
+			.into_iter()
+			.map(|target| {
+				// An unresolved target leaves its metadata unknown rather than being skipped.
+				match self
+					.models
+					.iter()
+					.find(|route| model_name_matches(&route.name, target))
+				{
+					Some(route) => model_info(route, target.to_string(), catalog),
+					None => llm::model_list::ModelInfo::default(),
+				}
+			})
+			.collect::<Vec<_>>();
+		llm::model_list::ModelInfo::combine(model.name.clone(), model.created, &targets)
 	}
 
 	async fn resolve_virtual_model(
@@ -698,14 +768,19 @@ fn api_key_discoverable_models<'a>(
 	)
 }
 
-fn model_list_entry(id: &str, created: u64) -> serde_json::Value {
-	serde_json::json!({
-		"id": id,
-		"object": "model",
-		"created": created,
-		// TODO: this matches some other gateways but seems odd. Should we use the real provide here?
-		"owned_by": "openai",
-	})
+fn model_info(
+	route: &ModelRoute,
+	name: String,
+	catalog: &llm::catalog::CatalogSnapshot,
+) -> llm::model_list::ModelInfo {
+	let Some(discovery) = &route.discovery else {
+		return llm::model_list::ModelInfo::new(name, route.created, None, None);
+	};
+	let entry = catalog
+		.model_ids(&discovery.provider)
+		.map(|ids| discovery.catalog_model(&name, ids))
+		.and_then(|id| catalog.model(&discovery.provider, &id));
+	llm::model_list::ModelInfo::new(name, route.created, Some(discovery.provider.clone()), entry)
 }
 
 fn is_responses_websocket(req: &Request) -> bool {
@@ -728,6 +803,9 @@ fn is_responses_websocket(req: &Request) -> bool {
 }
 
 fn is_model_list_request(req: &Request) -> bool {
+	if req.method() != ::http::Method::GET {
+		return false;
+	}
 	let path = req.uri().path().trim_end_matches('/');
 	path == "/v1/models"
 		|| path
