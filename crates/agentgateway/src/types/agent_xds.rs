@@ -2103,6 +2103,11 @@ pub(crate) fn backend_with_policies_from_proto(
 								moderation,
 							})
 						},
+						Some(provider::Provider::Copilot(copilot)) => {
+							AIProvider::Copilot(llm::copilot::Provider {
+								model_override: copilot.model.as_deref().map(strng::new),
+							})
+						},
 						Some(provider::Provider::Gemini(gemini)) => AIProvider::Gemini(llm::gemini::Provider {
 							model_override: gemini.model.as_deref().map(strng::new),
 						}),

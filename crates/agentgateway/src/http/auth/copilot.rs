@@ -7,36 +7,12 @@ use crate::http::Request;
 const TOKEN_ENV_VARS: &[&str] = &["GH_COPILOT_TOKEN", "COPILOT_GITHUB_TOKEN"];
 const DOMAIN: &str = "github.com";
 
-pub(super) async fn insert_headers(req: &mut Request) -> anyhow::Result<()> {
+pub(super) async fn insert_token(req: &mut Request) -> anyhow::Result<()> {
 	let token = load_token().await?;
 	let mut auth = HeaderValue::from_str(&format!("Bearer {token}"))?;
 	auth.set_sensitive(true);
 
 	req.headers_mut().insert(http::header::AUTHORIZATION, auth);
-	req.headers_mut().insert(
-		http::header::CONTENT_TYPE,
-		HeaderValue::from_static("application/json"),
-	);
-	req.headers_mut().insert(
-		"editor-version",
-		HeaderValue::from_static(concat!("agentgateway/", env!("CARGO_PKG_VERSION"))),
-	);
-	req.headers_mut().insert(
-		"x-github-api-version",
-		HeaderValue::from_static("2025-10-01"),
-	);
-	req
-		.headers_mut()
-		.insert("x-initiator", HeaderValue::from_static("agent"));
-	req.headers_mut().insert(
-		"x-interaction-type",
-		HeaderValue::from_static("conversation-agent"),
-	);
-	req.headers_mut().insert(
-		"openai-intent",
-		HeaderValue::from_static("conversation-agent"),
-	);
-
 	Ok(())
 }
 
