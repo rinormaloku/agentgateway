@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 
 import type { McpSettingsResource } from '@/api/configResourcesApi';
 import { ConfigDiffSaveActions } from '@/components/ConfigDiffDrawer';
+import { LostFieldsWarning, useMergedEdits } from '@/components/EditorContracts';
 import { EnumSelector } from '@/components/EnumSelector';
 import { GatewayBindingEditor, type GatewayBindingValue } from '@/components/GatewayBindingEditor';
 import { MiniMonacoEditor } from '@/components/MiniMonacoEditor';
@@ -573,6 +574,10 @@ function McpServerEditor(props: {
 		schemaValue
 	});
 	const [initialDraft] = useState(() => draft);
+	const merged = useMergedEdits(
+		props.previousName ? props.initial : undefined,
+		safeTargetPreview()
+	);
 
 	function targetPreview() {
 		const base = {
@@ -596,13 +601,24 @@ function McpServerEditor(props: {
 				}
 			};
 		}
-		const target = {
-			host: url.trim() || null
-		};
+		// The URL field folds host, port, and path into one value. Until it is
+		// edited, emit the original address so an edit replaces all of them.
+		const target =
+			network && url.trim() === networkUrl(network, targetKind(props.initial))
+				? { ...network }
+				: { host: url.trim() || null };
 		if (kind === 'sse') return { ...base, sse: target };
 		if (kind === 'openapi')
 			return { ...base, openapi: { ...target, schema: schemaFromSource(schemaValue, schemaMode) } };
 		return { ...base, mcp: target };
+	}
+
+	function safeTargetPreview() {
+		try {
+			return targetPreview();
+		} catch {
+			return null;
+		}
 	}
 
 	function validTargetPreview() {
@@ -616,9 +632,8 @@ function McpServerEditor(props: {
 	}
 
 	function save() {
-		const target = validTargetPreview();
-		if (!target) return;
-		props.onSave(target, props.previousName);
+		if (!validTargetPreview()) return;
+		props.onSave(merged.value as McpTarget, props.previousName);
 	}
 
 	return (
@@ -645,17 +660,15 @@ function McpServerEditor(props: {
 						props.databaseBacked
 							? () => ({
 									original: props.previousName ? props.initial : {},
-									modified: targetPreview()
+									modified: merged.value
 								})
 							: undefined
 					}
-					applyDiff={next => {
-						const target = targetPreview();
-						upsertMcpTarget(next, target, props.previousName);
-					}}
+					applyDiff={next => upsertMcpTarget(next, merged.value as McpTarget, props.previousName)}
 				/>
 			)}
 		>
+			<LostFieldsWarning lost={merged.lost} />
 			<div className="form-grid">
 				<Field
 					label="Server name"
