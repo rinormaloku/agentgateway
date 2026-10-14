@@ -305,11 +305,12 @@ fn invalid_request_error(bytes: &[u8]) -> Result<bytes::Bytes, AIError> {
 	))
 }
 
-impl From<bedrock::TokenUsage> for super::ProviderUsage {
-	fn from(u: bedrock::TokenUsage) -> Self {
+impl From<&bedrock::TokenUsage> for super::ProviderUsage {
+	fn from(u: &bedrock::TokenUsage) -> Self {
 		Self {
 			input_tokens: u.input_tokens as u64,
 			total_tokens: u.total_tokens as u64,
+			cache_creation_1h_input_tokens: u.cache_write_input_tokens_for("1h").map(|i| i as u64),
 			..Default::default()
 		}
 	}
@@ -1196,7 +1197,7 @@ pub mod from_completions {
 	) -> Result<Box<dyn ResponseType>, AIError> {
 		let resp = serde_json::from_slice::<bedrock::ConverseResponse>(bytes)
 			.map_err(logged_response_parsing(bytes))?;
-		let provider_usage = resp.usage.map(super::super::ProviderUsage::from);
+		let provider_usage = resp.usage.as_ref().map(super::super::ProviderUsage::from);
 		let openai = translate_response_internal(resp, model, tool_name_map)?;
 		let passthrough = json::convert::<_, types::completions::Response>(&openai)
 			.map_err(AIError::ResponseParsing)?;
@@ -1440,6 +1441,8 @@ pub mod from_completions {
 							r.response.cached_input_tokens = usage.cache_read_input_tokens.map(|i| i as u64);
 							r.response.cache_creation_input_tokens =
 								usage.cache_write_input_tokens.map(|i| i as u64);
+							r.response.cache_creation_1h_input_tokens =
+								usage.cache_write_input_tokens_for("1h").map(|i| i as u64);
 							if let Some(completion) = completion.take() {
 								r.response.completion = Some(vec![completion]);
 							}
@@ -2099,7 +2102,7 @@ pub mod from_messages {
 	) -> Result<Box<dyn ResponseType>, AIError> {
 		let resp = serde_json::from_slice::<bedrock::ConverseResponse>(bytes)
 			.map_err(logged_response_parsing(bytes))?;
-		let provider_usage = resp.usage.map(super::super::ProviderUsage::from);
+		let provider_usage = resp.usage.as_ref().map(super::super::ProviderUsage::from);
 		let openai = translate_response_internal(resp, model, tool_name_map)?;
 		let passthrough =
 			json::convert::<_, types::messages::Response>(&openai).map_err(AIError::ResponseParsing)?;
@@ -2187,6 +2190,7 @@ pub mod from_messages {
 							stop_reason: None,
 							stop_sequence: None,
 							usage: messages::Usage {
+								cache_creation: None,
 								input_tokens: 0,
 								output_tokens: 0,
 								cache_creation_input_tokens: None,
@@ -2396,7 +2400,6 @@ pub mod from_messages {
 				},
 				bedrock::ConverseStreamOutput::Metadata(meta) => {
 					if let Some(usage) = meta.usage {
-						pending_usage = Some(usage);
 						log.update(|r| {
 							r.response.output_tokens = Some(usage.output_tokens as u64);
 							r.response.input_tokens = Some(usage.input_tokens as u64);
@@ -2404,10 +2407,13 @@ pub mod from_messages {
 							r.response.cached_input_tokens = usage.cache_read_input_tokens.map(|i| i as u64);
 							r.response.cache_creation_input_tokens =
 								usage.cache_write_input_tokens.map(|i| i as u64);
+							r.response.cache_creation_1h_input_tokens =
+								usage.cache_write_input_tokens_for("1h").map(|i| i as u64);
 							if let Some(c) = completion.take() {
 								r.response.completion = Some(vec![c]);
 							}
 						});
+						pending_usage = Some(usage);
 					}
 
 					let mut out = Vec::new();
@@ -2466,6 +2472,7 @@ pub mod from_messages {
 
 	fn to_anthropic_message_delta_usage(usage: bedrock::TokenUsage) -> messages::MessageDeltaUsage {
 		messages::MessageDeltaUsage {
+			cache_creation: helpers::cache_creation(&usage),
 			input_tokens: Some(usage.input_tokens),
 			output_tokens: Some(usage.output_tokens),
 			cache_creation_input_tokens: usage.cache_write_input_tokens,
@@ -3310,7 +3317,7 @@ pub mod from_responses {
 	) -> Result<Box<dyn ResponseType>, AIError> {
 		let resp = serde_json::from_slice::<bedrock::ConverseResponse>(bytes)
 			.map_err(logged_response_parsing(bytes))?;
-		let provider_usage = resp.usage.map(super::super::ProviderUsage::from);
+		let provider_usage = resp.usage.as_ref().map(super::super::ProviderUsage::from);
 		let adapter = super::ConverseResponseAdapter::from_response(resp, model)?;
 		let mut typed = adapter.to_responses_typed(tool_name_map);
 		if let Some(namespaces) = namespaces {
@@ -3706,7 +3713,6 @@ pub mod from_responses {
 				},
 				bedrock::ConverseStreamOutput::Metadata(meta) => {
 					if let Some(usage) = meta.usage {
-						pending_usage = Some(usage);
 						log.update(|r| {
 							r.response.output_tokens = Some(usage.output_tokens as u64);
 							r.response.input_tokens = Some(usage.input_tokens as u64);
@@ -3714,7 +3720,10 @@ pub mod from_responses {
 							r.response.cached_input_tokens = usage.cache_read_input_tokens.map(|i| i as u64);
 							r.response.cache_creation_input_tokens =
 								usage.cache_write_input_tokens.map(|i| i as u64);
+							r.response.cache_creation_1h_input_tokens =
+								usage.cache_write_input_tokens_for("1h").map(|i| i as u64);
 						});
+						pending_usage = Some(usage);
 					}
 
 					let mut out: Vec<(&'static str, ResponseStreamEvent)> = Vec::new();
@@ -3895,7 +3904,7 @@ mod helpers {
 
 	use crate::AIError;
 	use crate::types::completions::typed::PromptCacheBreakpointParam;
-	use crate::types::messages::typed::CacheControlEphemeral;
+	use crate::types::messages::typed::{CacheControlEphemeral, CacheCreation};
 	use crate::types::responses::typed::PromptCacheBreakpointConfig;
 
 	// From https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
@@ -3966,6 +3975,13 @@ mod helpers {
 				tool_choice: None,
 			});
 		}
+	}
+
+	pub fn cache_creation(usage: &bedrock::TokenUsage) -> Option<CacheCreation> {
+		(!usage.cache_details.is_empty()).then(|| CacheCreation {
+			ephemeral_5m_input_tokens: usage.cache_write_input_tokens_for("5m"),
+			ephemeral_1h_input_tokens: usage.cache_write_input_tokens_for("1h"),
+		})
 	}
 
 	pub fn create_cache_point() -> bedrock::CachePointBlock {
@@ -4396,6 +4412,7 @@ impl ConverseResponseAdapter {
 
 		let usage = self
 			.usage
+			.as_ref()
 			.map(|token_usage| {
 				let input_tokens = token_usage.input_tokens
 					+ token_usage.cache_read_input_tokens.unwrap_or_default()
@@ -4563,7 +4580,7 @@ impl ConverseResponseAdapter {
 		};
 
 		// Build usage
-		let usage = self.usage.map(|u| {
+		let usage = self.usage.as_ref().map(|u| {
 			let input_tokens = u.input_tokens
 				+ u.cache_read_input_tokens.unwrap_or_default()
 				+ u.cache_write_input_tokens.unwrap_or_default();
@@ -4654,7 +4671,9 @@ impl ConverseResponseAdapter {
 
 		let usage = self
 			.usage
+			.as_ref()
 			.map(|u| messagest::Usage {
+				cache_creation: helpers::cache_creation(u),
 				input_tokens: u.input_tokens,
 				output_tokens: u.output_tokens,
 				cache_creation_input_tokens: u.cache_write_input_tokens,
@@ -4662,6 +4681,7 @@ impl ConverseResponseAdapter {
 				service_tier: None,
 			})
 			.unwrap_or(messagest::Usage {
+				cache_creation: None,
 				input_tokens: 0,
 				output_tokens: 0,
 				cache_creation_input_tokens: None,
