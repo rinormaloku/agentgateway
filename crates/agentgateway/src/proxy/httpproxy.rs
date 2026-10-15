@@ -1162,14 +1162,11 @@ impl HTTPProxy {
 			}
 			// TODO: mirror the body. For now, we just ignore the body
 			let req = Request::from_parts(head.clone(), http::Body::empty());
-			let inputs = inputs.clone();
-			let policy_client = self.policy_client();
-			let mirror = mirror.clone();
-			tokio::task::spawn(async move {
-				if let Err(e) = send_mirror(inputs, policy_client, mirror, req).await {
-					warn!("error sending mirror request: {}", e);
-				}
-			});
+			// Mirrors are sent only once backend policies (authorization, ext authz, etc.) allow the
+			// request; see send_pending_mirrors.
+			response_policies
+				.pending_mirrors
+				.push((mirror.clone(), req));
 		}
 		const MAX_BUFFERED_BYTES: usize = 64 * 1024;
 		let retries = route_retry;
@@ -2729,6 +2726,7 @@ async fn make_backend_call(
 					ProxyError::ProcessingString("invalid: log required for MCP".to_string()).into(),
 				);
 			};
+			send_pending_mirrors(&inputs, response_policies);
 			let response = Box::pin(
 				inputs
 					.clone()
@@ -2773,6 +2771,7 @@ async fn make_backend_call(
 		response_policies,
 	)
 	.await?;
+	send_pending_mirrors(&inputs, response_policies);
 
 	// For Dynamic backends, re-resolve the target from the (now potentially transformed)
 	// request URI (or re-evaluate the target expression, if any dynamic metadata it reads
@@ -4545,6 +4544,20 @@ pub fn parse_grpc_status(headers: &HeaderMap) -> Option<u8> {
 		.and_then(|status| status.parse().ok())
 }
 
+/// Sends the mirrors selected for this request. Mirrors are drained on the first call, so retries
+/// do not send them again.
+fn send_pending_mirrors(inputs: &Arc<ProxyInputs>, response_policies: &mut ResponsePolicies) {
+	for (mirror, req) in std::mem::take(&mut response_policies.pending_mirrors) {
+		let inputs = inputs.clone();
+		let policy_client = PolicyClient::new(inputs.clone());
+		tokio::task::spawn(async move {
+			if let Err(e) = send_mirror(inputs, policy_client, mirror, req).await {
+				warn!("error sending mirror request: {}", e);
+			}
+		});
+	}
+}
+
 async fn send_mirror(
 	inputs: Arc<ProxyInputs>,
 	upstream: PolicyClient,
@@ -4902,6 +4915,8 @@ struct ResponsePolicies {
 	// evaluated. The later LLM path uses these selected policies and does not re-evaluate conditions.
 	llm_request_policies: LLMRequestPolicies,
 	a2a_type: a2a::RequestType,
+	// Mirrors selected for the request, sent once backend policies allow the request.
+	pending_mirrors: Vec<(filters::RequestMirror, Request)>,
 }
 
 impl ResponsePolicies {

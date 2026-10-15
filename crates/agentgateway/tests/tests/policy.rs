@@ -600,3 +600,102 @@ async fn inline_backend_policies() {
 		b"backend-route-req"
 	);
 }
+
+async fn mirror_mock() -> MockServer {
+	let mock = MockServer::start().await;
+	Mock::given(wiremock::matchers::path_regex("/.*"))
+		.respond_with(ResponseTemplate::new(200))
+		.mount(&mock)
+		.await;
+	mock
+}
+
+/// Waits until the mock received `n` requests, then returns the paths of all received requests.
+async fn wait_for_requests(mock: &MockServer, n: usize) -> Vec<String> {
+	for _ in 0..100 {
+		let reqs = mock.received_requests().await.unwrap();
+		if reqs.len() >= n {
+			// Give any unexpected extra request a chance to arrive.
+			tokio::time::sleep(Duration::from_millis(50)).await;
+			let reqs = mock.received_requests().await.unwrap();
+			return reqs.iter().map(|r| r.url.path().to_string()).collect();
+		}
+		tokio::time::sleep(Duration::from_millis(20)).await;
+	}
+	panic!("mock did not receive {n} requests");
+}
+
+#[tokio::test]
+async fn request_mirror_skipped_when_backend_authorization_denies() {
+	let (mock, mut bind, io) = basic_setup().await;
+	let route_shadow = mirror_mock().await;
+	let backend_shadow = mirror_mock().await;
+	bind
+		.attach_route_policy(json!({
+			"requestMirror": {
+				"backend": {"host": route_shadow.address().to_string()},
+				"percentage": 1.0,
+			},
+		}))
+		.await;
+	bind
+		.attached_backend_policy(
+			mock.address(),
+			json!({
+				"authorization": {
+					"rules": ["request.headers[\"x-tenant\"] == \"acme\""],
+				},
+				"requestMirror": {
+					"backend": {"host": backend_shadow.address().to_string()},
+					"percentage": 1.0,
+				},
+			}),
+		)
+		.await;
+
+	let res = send_request(io.clone(), Method::DELETE, "http://lo/denied").await;
+	assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+	let res = RequestBuilder::new(Method::DELETE, "http://lo/allowed")
+		.header("x-tenant", "acme")
+		.send(io.clone())
+		.await
+		.unwrap();
+	assert_eq!(res.status(), StatusCode::OK);
+
+	// Only the allowed request is mirrored, by both the route and the backend mirror.
+	assert_eq!(wait_for_requests(&route_shadow, 1).await, vec!["/allowed"]);
+	assert_eq!(
+		wait_for_requests(&backend_shadow, 1).await,
+		vec!["/allowed"]
+	);
+	assert_eq!(wait_for_requests(&mock, 1).await, vec!["/allowed"]);
+}
+
+#[tokio::test]
+async fn request_mirror_sent_once_with_retries() {
+	let upstream = MockServer::start().await;
+	Mock::given(wiremock::matchers::path_regex("/.*"))
+		.respond_with(ResponseTemplate::new(503))
+		.mount(&upstream)
+		.await;
+	let (upstream, mut bind, io) = setup_mock(upstream);
+	let shadow = mirror_mock().await;
+	bind
+		.attach_route_policy(json!({
+			"requestMirror": {
+				"backend": {"host": shadow.address().to_string()},
+				"percentage": 1.0,
+			},
+			"retry": {
+				"attempts": 2,
+				"codes": [503],
+			},
+		}))
+		.await;
+
+	let res = send_request(io.clone(), Method::GET, "http://lo/retried").await;
+	assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+	assert_eq!(wait_for_requests(&upstream, 3).await.len(), 3);
+	assert_eq!(wait_for_requests(&shadow, 1).await, vec!["/retried"]);
+}
